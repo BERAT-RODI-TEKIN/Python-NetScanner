@@ -19,6 +19,7 @@ from netscanner.core.scanner import (
     NetScanner, ScanType, PortState,
     parse_targets, parse_ports, PORT_PROFILES,
     ScanResult, PortResult, VERSION, BUILD, GITHUB,
+    DANGEROUS_PORTS,
 )
 from netscanner.core.output import save, save_results
 
@@ -36,6 +37,10 @@ PURPLE = "#bc8cff"
 TEXT   = "#e6edf3"
 TEXT2  = "#8b949e"
 MONO   = "Consolas" if sys.platform == "win32" else "Monospace"
+
+# NEW FEATURE: Dangerous port row highlighting
+DANGER_COLOR = "#ff6b35"   # orange-red for high-risk ports
+WARNING_COLOR = "#e3b341"  # amber for notable ports
 
 SCAN_PROFILES = {
     "Quick scan  (top-100 T4)":       "-p top-100 -T4",
@@ -76,6 +81,9 @@ def _apply_style(root: tk.Tk):
     s.configure("Stop.TButton", background=RED, foreground=TEXT,
                 font=(MONO, 10, "bold"), padding=(14, 5))
     s.map("Stop.TButton", background=[("active","#c93c37")])
+    s.configure("Clear.TButton", background=BG3, foreground=TEXT2,
+                font=(MONO, 9), padding=(8, 4))
+    s.map("Clear.TButton", background=[("active", BORDER)])
     s.configure("TCombobox",
                 fieldbackground=BG3, foreground=TEXT,
                 background=BG3, selectbackground=ACCENT)
@@ -115,9 +123,33 @@ class NetScannerGUI(tk.Tk):
         self._scanner:  Optional[NetScanner] = None
         self._running   = False
         self._q: queue.Queue = queue.Queue()
+        self._poll_id: Optional[str] = None   # BUG FIX: track after() ID
 
         self._build_ui()
         self._poll_queue()
+
+        # BUG FIX: intercept window close to cancel the poll loop
+        # and stop any running scan gracefully
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── Graceful shutdown ─────────────────────────────────────
+    def _on_close(self):
+        """
+        BUG FIX: The original code's self.after(40, self._poll_queue) kept
+        firing after mainloop() returned, causing:
+          invalid command name "XXXX_poll_queue"  ("after" script)
+        Fix: cancel the scheduled callback, stop scan, then destroy.
+        """
+        if self._poll_id is not None:
+            try:
+                self.after_cancel(self._poll_id)
+            except Exception:
+                pass
+            self._poll_id = None
+        if self._scanner:
+            self._scanner.stop()
+        self._running = False
+        self.destroy()
 
     # ── Build UI ─────────────────────────────────────────────
     def _build_ui(self):
@@ -173,7 +205,12 @@ class NetScannerGUI(tk.Tk):
                                     style="Stop.TButton",
                                     command=self._stop_scan,
                                     state="disabled")
-        self._stop_btn.pack(side="left")
+        self._stop_btn.pack(side="left", padx=(0, 6))
+
+        # NEW FEATURE: Clear results button
+        ttk.Button(bar, text="✕  CLEAR",
+                   style="Clear.TButton",
+                   command=self._clear_all).pack(side="left")
 
     def _build_body(self):
         body = tk.Frame(self, bg=BG)
@@ -248,6 +285,12 @@ class NetScannerGUI(tk.Tk):
         self._port_tree.tag_configure("closed",        foreground=RED)
         self._port_tree.tag_configure("filtered",      foreground=YELLOW)
         self._port_tree.tag_configure("open|filtered", foreground=ACC2)
+        # NEW FEATURE: highlight dangerous ports
+        self._port_tree.tag_configure("danger",
+                                      foreground=DANGER_COLOR,
+                                      font=(MONO, 9, "bold"))
+        self._port_tree.tag_configure("warning",
+                                      foreground=WARNING_COLOR)
 
         vsb = ttk.Scrollbar(self._tab_ports, orient="vertical",
                             command=self._port_tree.yview)
@@ -259,6 +302,21 @@ class NetScannerGUI(tk.Tk):
         hsb.pack(side="bottom", fill="x")
         self._port_tree.pack(fill="both", expand=True)
 
+        # NEW FEATURE: right-click context menu for copy
+        self._ctx_menu = tk.Menu(self, tearoff=0,
+                                  bg=BG3, fg=TEXT,
+                                  activebackground=ACCENT,
+                                  activeforeground=BG)
+        self._ctx_menu.add_command(label="📋  Copy Row",
+                                    command=self._copy_selected_row)
+        self._ctx_menu.add_command(label="📋  Copy Port Number",
+                                    command=self._copy_port_number)
+        self._ctx_menu.add_separator()
+        self._ctx_menu.add_command(label="📋  Copy All Open Ports",
+                                    command=self._copy_all_ports)
+        self._port_tree.bind("<Button-3>", self._show_context_menu)
+        self._port_tree.bind("<Button-2>", self._show_context_menu)  # macOS
+
     def _build_output_tab(self):
         self._output_text = scrolledtext.ScrolledText(
             self._tab_output,
@@ -266,10 +324,11 @@ class NetScannerGUI(tk.Tk):
             insertbackground=ACCENT, relief="flat", bd=0,
             wrap="word", state="disabled")
         self._output_text.pack(fill="both", expand=True, padx=2, pady=2)
-        self._output_text.tag_configure("hdr",  foreground=ACCENT)
-        self._output_text.tag_configure("open", foreground=GREEN)
-        self._output_text.tag_configure("warn", foreground=YELLOW)
-        self._output_text.tag_configure("err",  foreground=RED)
+        self._output_text.tag_configure("hdr",    foreground=ACCENT)
+        self._output_text.tag_configure("open",   foreground=GREEN)
+        self._output_text.tag_configure("warn",   foreground=YELLOW)
+        self._output_text.tag_configure("err",    foreground=RED)
+        self._output_text.tag_configure("danger", foreground=DANGER_COLOR)
 
     def _build_info_tab(self):
         f = tk.Frame(self._tab_info, bg=BG2)
@@ -343,6 +402,10 @@ class NetScannerGUI(tk.Tk):
 
     # ── Queue-based thread-safe UI updates ───────────────────
     def _poll_queue(self):
+        """
+        BUG FIX: Store the after() ID so _on_close() can cancel it.
+        Also wrapped in try/except tk.TclError for extra safety during shutdown.
+        """
         try:
             while True:
                 msg = self._q.get_nowait()
@@ -353,18 +416,20 @@ class NetScannerGUI(tk.Tk):
                     self._prog_lbl.set(f"{d}/{t} ports")
                 elif k == "open":
                     pr: PortResult = msg["pr"]
+                    tag = "danger" if pr.port in DANGEROUS_PORTS else "open"
                     self._append_output(
                         f"  {pr.port:<7}/{pr.protocol:<5}  OPEN  "
                         f"{pr.service:<22}  "
                         f"{pr.version or pr.banner or ''}\n",
-                        "open")
+                        tag)
+                    tags = (tag,)
                     self._port_tree.insert(
                         "", "end",
                         values=(pr.port, pr.protocol, "open",
                                 pr.service,
                                 pr.version or pr.banner or "",
                                 pr.extra or ""),
-                        tags=("open",))
+                        tags=tags)
                     self._port_tree.yview_moveto(1.0)
                 elif k == "start":
                     self._status_var.set(f"Scanning: {msg['tgt']}")
@@ -380,7 +445,16 @@ class NetScannerGUI(tk.Tk):
                     self._scan_done()
         except queue.Empty:
             pass
-        self.after(40, self._poll_queue)
+        except Exception:
+            # Silently ignore errors during widget teardown
+            pass
+
+        # BUG FIX: Store the ID returned by after() so we can cancel it
+        try:
+            self._poll_id = self.after(40, self._poll_queue)
+        except Exception:
+            # Widget already destroyed — do nothing
+            self._poll_id = None
 
     # ── Callbacks ────────────────────────────────────────────
     def _on_profile(self, _=None):
@@ -392,6 +466,62 @@ class NetScannerGUI(tk.Tk):
         sel = self._host_list.curselection()
         if sel and sel[0] < len(self._results):
             self._display_result(self._results[sel[0]])
+
+    # NEW FEATURE: Context menu actions ──────────────────────
+    def _show_context_menu(self, event):
+        """Right-click context menu on the port tree."""
+        row = self._port_tree.identify_row(event.y)
+        if row:
+            self._port_tree.selection_set(row)
+            try:
+                self._ctx_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self._ctx_menu.grab_release()
+
+    def _copy_selected_row(self):
+        sel = self._port_tree.selection()
+        if not sel:
+            return
+        vals = self._port_tree.item(sel[0], "values")
+        text = "\t".join(str(v) for v in vals)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    def _copy_port_number(self):
+        sel = self._port_tree.selection()
+        if not sel:
+            return
+        port = self._port_tree.item(sel[0], "values")[0]
+        self.clipboard_clear()
+        self.clipboard_append(str(port))
+
+    def _copy_all_ports(self):
+        """Copy all visible open port numbers as comma-separated list."""
+        ports = []
+        for iid in self._port_tree.get_children():
+            vals = self._port_tree.item(iid, "values")
+            if vals and vals[2] == "open":
+                ports.append(str(vals[0]))
+        if ports:
+            self.clipboard_clear()
+            self.clipboard_append(",".join(ports))
+
+    # NEW FEATURE: Clear all results ─────────────────────────
+    def _clear_all(self):
+        if self._running:
+            return
+        self._results.clear()
+        self._host_list.delete(0, "end")
+        self._port_tree.delete(*self._port_tree.get_children())
+        self._clear_output()
+        self._prog_var.set(0)
+        self._prog_lbl.set("")
+        self._time_var.set("")
+        for attr in ("_vi_target","_vi_ip","_vi_host","_vi_resolved",
+                     "_vi_status","_vi_os","_vi_ttl","_vi_open",
+                     "_vi_total","_vi_stype","_vi_dur","_vi_time"):
+            getattr(self, attr).set("—")
+        self._status_var.set("Ready — Enter a target and press SCAN")
 
     # ── Scan control ─────────────────────────────────────────
     def _parse_cmd(self):
@@ -512,13 +642,19 @@ class NetScannerGUI(tk.Tk):
     def _display_result(self, result: ScanResult):
         self._port_tree.delete(*self._port_tree.get_children())
         for pr in result.ports:
+            # NEW FEATURE: dangerous port gets special tag
+            state_val = pr.state.value
+            if pr.state == PortState.OPEN and pr.port in DANGEROUS_PORTS:
+                tag = "danger"
+            else:
+                tag = state_val
             self._port_tree.insert(
                 "", "end",
-                values=(pr.port, pr.protocol, pr.state.value,
+                values=(pr.port, pr.protocol, state_val,
                         pr.service,
                         pr.version or pr.banner or "",
                         pr.extra or ""),
-                tags=(pr.state.value,))
+                tags=(tag,))
 
         self._vi_target.set(result.target)
         self._vi_ip.set(result.ip or "—")

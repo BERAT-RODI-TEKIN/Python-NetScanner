@@ -14,6 +14,7 @@ from netscanner.core.scanner import (
     NetScanner, ScanType, PortState,
     parse_targets, parse_ports, PORT_PROFILES,
     VERSION, BUILD, GITHUB, resolve_domain_info,
+    DANGEROUS_PORTS,
 )
 from netscanner.core.output import (
     C, print_banner, format_result, format_summary, save,
@@ -241,6 +242,22 @@ def run_cli(argv=None):
     print()
 
     progress = ProgressBar()
+    verbose  = args.verbose
+
+    # BUG FIX: Separate the found_cb to avoid lambda tuple/None ambiguity
+    if verbose:
+        def _found_cb(pr):
+            danger = pr.port in DANGEROUS_PORTS
+            col = C.RED if danger else C.GRN
+            tag = f" {C.YLW}[!DANGER]{C.R}" if danger else ""
+            progress.clear()
+            print(
+                f"  {col}[+] {pr.port:<6}/{pr.protocol:<4} OPEN  "
+                f"{pr.service:<20}  {pr.version or pr.banner or ''}{C.R}{tag}"
+            )
+    else:
+        _found_cb = None
+
     scanner  = NetScanner(
         scan_type   = scan_type,
         timeout     = timeout,
@@ -250,11 +267,7 @@ def run_cli(argv=None):
         os_detect   = do_os,
         show_closed = args.closed,
         progress_cb = progress.update,
-        found_cb    = lambda pr: (
-            progress.clear(),
-            print(f"  {C.GRN}[+] {pr.port:<6}/{pr.protocol:<4} OPEN  "
-                  f"{pr.service:<20}  {pr.version or pr.banner or ''}{C.R}")
-        ) if args.verbose else None,
+        found_cb    = _found_cb,
     )
 
     all_results = []
@@ -263,7 +276,7 @@ def run_cli(argv=None):
               f"{C.GRY}({len(ports)} ports){C.R}")
         result = scanner.scan(target, ports)
         progress.clear()
-        print(format_result(result, verbose=args.verbose))
+        print(format_result(result, verbose=verbose))
         all_results.append(result)
 
     if len(all_results) > 1:

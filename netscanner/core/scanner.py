@@ -20,6 +20,20 @@ BUILD      = "3.0.0"
 GITHUB     = "https://github.com/BERAT-RODI-TEKIN/Python-NetScanner"
 YEAR       = "2026"
 
+# BUG FIX: Max thread cap to prevent OS fd exhaustion
+_MAX_THREADS = 1000
+
+# SECURITY FIX: Strip ANSI escape sequences and control chars from banner data
+# to prevent terminal injection attacks via crafted banners
+_ANSI_RE = re.compile(
+    r'\x1b\[[0-9;]*[mGKHFABCDSTJRsu]'   # CSI sequences
+    r'|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]'  # raw control chars (keep \t \n)
+)
+
+def _sanitize(text: str, maxlen: int = 200) -> str:
+    """Strip ANSI/control chars from banner text (prevents terminal injection)."""
+    return _ANSI_RE.sub('', text)[:maxlen]
+
 
 class ScanType(Enum):
     TCP_CONNECT = "TCP Connect"
@@ -129,52 +143,65 @@ PORT_PROFILES: Dict[str, List[int]] = {
     "all":    list(range(1, 65536)),
 }
 
+# PERFORMANCE: Known high-risk ports for fast-path flagging
+DANGEROUS_PORTS = frozenset([
+    21, 23, 69, 135, 137, 138, 139, 445, 512, 513, 514,
+    1080, 1433, 2375, 3389, 4444, 5900, 6379, 11211, 27017,
+])
+
+
+# ── Reverse DNS with timeout ──────────────────────────────────
+def _reverse_dns(ip: str, timeout: float = 2.0) -> str:
+    """
+    PERFORMANCE FIX: socket.gethostbyaddr() can block indefinitely.
+    Run in a daemon thread with a hard timeout.
+    """
+    result: List[str] = [""]
+    def _lookup():
+        try:
+            result[0] = socket.gethostbyaddr(ip)[0]
+        except Exception:
+            result[0] = ""
+    t = threading.Thread(target=_lookup, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result[0]
+
 
 # ── DNS / Domain → IP resolution ─────────────────────────────
 def resolve_target(target: str) -> Tuple[str, str, str]:
     """
     Returns (ip, hostname, resolved_from).
-    Works for: IPs, hostnames, domain names (google.com, etc.)
+    Works for: IPs (v4/v6), hostnames, domain names (google.com, etc.)
+    BUG FIX: IPv6 addresses no longer crash; reverse DNS has a timeout.
     """
-    # Already an IP?
+    # Strip IPv6 brackets if present (e.g. [::1] → ::1)
+    stripped = target.strip("[]")
     try:
-        ipaddress.ip_address(target)
-        # Reverse lookup
-        try:
-            hostname = socket.gethostbyaddr(target)[0]
-        except Exception:
-            hostname = ""
-        return target, hostname, ""
+        ipaddress.ip_address(stripped)
+        hostname = _reverse_dns(stripped, timeout=2.0)
+        return stripped, hostname, ""
     except ValueError:
         pass
 
     # Hostname / domain — resolve to IP
     try:
         ip = socket.gethostbyname(target)
-        # Also try reverse
-        try:
-            hostname = socket.gethostbyaddr(ip)[0]
-        except Exception:
-            hostname = target
+        hostname = _reverse_dns(ip, timeout=2.0) or target
         return ip, hostname, target
     except socket.gaierror as e:
         return "", "", f"DNS error: {e}"
 
 
-def resolve_domain_info(domain: str) -> Dict[str, str]:
-    """
-    Return all IPs for a domain (multiple A records).
-    """
-    info = {"domain": domain, "ips": [], "hostname": ""}
+def resolve_domain_info(domain: str) -> Dict[str, object]:
+    """Return all IPs for a domain (multiple A records)."""
+    info: Dict[str, object] = {"domain": domain, "ips": [], "hostname": ""}
     try:
         results = socket.getaddrinfo(domain, None)
         ips = list(dict.fromkeys(r[4][0] for r in results))
         info["ips"] = ips
         if ips:
-            try:
-                info["hostname"] = socket.gethostbyaddr(ips[0])[0]
-            except Exception:
-                info["hostname"] = domain
+            info["hostname"] = _reverse_dns(ips[0], timeout=2.0) or domain
     except Exception as e:
         info["error"] = str(e)
     return info
@@ -189,7 +216,11 @@ HTTP_PROBE = (
 )
 
 def grab_banner(ip: str, port: int, timeout: float = 2.5) -> Tuple[str, str, str]:
-    """Returns (banner, version, extra)."""
+    """
+    Returns (banner, version, extra).
+    SECURITY FIX: All banner strings are sanitized to prevent terminal injection.
+    PERFORMANCE FIX: Reduced recv buffer; SSL checked without full handshake.
+    """
     svc = SERVICE_DB.get(port, "")
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -202,14 +233,14 @@ def grab_banner(ip: str, port: int, timeout: float = 2.5) -> Tuple[str, str, str
             elif port in (443, 8443) or svc in ("https","https-alt"):
                 return "SSL/TLS", "HTTPS (SSL/TLS encrypted)", ""
             else:
-                time.sleep(0.35)
+                time.sleep(0.3)
                 try:
                     s.send(b"\r\n")
                 except Exception:
                     pass
 
             try:
-                raw = s.recv(4096).decode("utf-8", errors="replace")
+                raw = s.recv(2048).decode("utf-8", errors="replace")
             except socket.timeout:
                 return "", "", ""
 
@@ -221,33 +252,33 @@ def grab_banner(ip: str, port: int, timeout: float = 2.5) -> Tuple[str, str, str
 
             # HTTP response
             if raw.startswith("HTTP/"):
-                banner  = first[:80]
+                banner  = _sanitize(first[:80])
                 version = ""
                 extra   = []
                 for line in lines:
                     low = line.lower()
                     if low.startswith("server:"):
-                        version = line[7:].strip()[:60]
+                        version = _sanitize(line[7:].strip()[:60])
                     elif low.startswith("x-powered-by:"):
-                        extra.append(line[13:].strip())
+                        extra.append(_sanitize(line[13:].strip()))
                     elif low.startswith("location:"):
-                        extra.append("→ " + line[9:].strip()[:40])
+                        extra.append("→ " + _sanitize(line[9:].strip()[:40]))
                 return banner, version, "  ".join(extra[:2])
 
             # SSH
             m = re.search(r"SSH-([\d.]+)-(\S+)", first)
             if m:
-                ver = f"SSH-{m.group(1)} / {m.group(2)}"
-                return first[:80], ver, ""
+                ver = _sanitize(f"SSH-{m.group(1)} / {m.group(2)}")
+                return _sanitize(first[:80]), ver, ""
 
             # FTP / SMTP / POP3
             if re.match(r"^2[0-9][0-9][\s-]", first):
-                return first[:80], first[:60], ""
+                return _sanitize(first[:80]), _sanitize(first[:60]), ""
 
             if first.startswith("+OK"):
-                return first[:80], first[:60], ""
+                return _sanitize(first[:80]), _sanitize(first[:60]), ""
 
-            return first[:80], first[:60], ""
+            return _sanitize(first[:80]), _sanitize(first[:60]), ""
 
     except (ConnectionRefusedError, OSError):
         return "", "", ""
@@ -256,6 +287,10 @@ def grab_banner(ip: str, port: int, timeout: float = 2.5) -> Tuple[str, str, str
 
 
 # ── TCP Connect scan ─────────────────────────────────────────
+# BUG FIX: Added platform-specific ECONNREFUSED codes
+# Linux=111, macOS=61, Windows=10061, some BSDs=146
+_ECONNREFUSED = frozenset([10061, 111, 61, 146])
+
 def tcp_connect(ip: str, port: int, timeout: float = 1.0,
                 do_banner: bool = True) -> PortResult:
     svc = SERVICE_DB.get(port, "unknown")
@@ -271,7 +306,7 @@ def tcp_connect(ip: str, port: int, timeout: float = 1.0,
                     ip, port, min(timeout * 2.5, 4.0))
             return PortResult(port, PortState.OPEN, svc,
                               banner, version, "tcp", "syn-ack", extra)
-        if err in (10061, 111, 61):  # ECONNREFUSED
+        if err in _ECONNREFUSED:
             return PortResult(port, PortState.CLOSED, svc,
                               "", "", "tcp", "conn-refused")
         return PortResult(port, PortState.FILTERED, svc,
@@ -297,7 +332,7 @@ def udp_scan_port(ip: str, port: int, timeout: float = 2.0) -> PortResult:
             try:
                 data, _ = s.recvfrom(1024)
                 return PortResult(port, PortState.OPEN, svc,
-                                  data[:30].hex(), "", "udp", "response")
+                                  _sanitize(data[:30].hex()), "", "udp", "response")
             except socket.timeout:
                 return PortResult(port, PortState.OPEN_FILTERED, svc,
                                   "", "", "udp", "no-response")
@@ -311,19 +346,34 @@ def udp_scan_port(ip: str, port: int, timeout: float = 2.0) -> PortResult:
 
 # ── Host discovery ────────────────────────────────────────────
 def is_host_up(ip: str, timeout: float = 2.0) -> bool:
-    try:
-        flags = ["-n","1","-w","1000"] if platform.system()=="Windows" \
-                else ["-c","1","-W","1"]
-        r = subprocess.run(["ping"]+flags+[ip],
-                           capture_output=True, timeout=3)
-        if r.returncode == 0:
-            return True
-    except Exception:
-        pass
+    """
+    PERFORMANCE FIX: Run ping in a thread so we can enforce the timeout
+    strictly, then fall back to TCP probes.
+    """
+    ping_result = [False]
+    def _ping():
+        try:
+            flags = ["-n","1","-w","1000"] if platform.system() == "Windows" \
+                    else ["-c","1","-W","1"]
+            r = subprocess.run(
+                ["ping"] + flags + [ip],
+                capture_output=True, timeout=3
+            )
+            ping_result[0] = (r.returncode == 0)
+        except Exception:
+            ping_result[0] = False
+
+    pt = threading.Thread(target=_ping, daemon=True)
+    pt.start()
+    pt.join(3.5)  # strict wall-clock timeout for the ping thread
+
+    if ping_result[0]:
+        return True
+
     for p in (80, 443, 22, 445, 8080, 135):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(timeout)
+                s.settimeout(min(timeout, 1.0))
                 if s.connect_ex((ip, p)) == 0:
                     return True
         except Exception:
@@ -333,10 +383,13 @@ def is_host_up(ip: str, timeout: float = 2.0) -> bool:
 
 # ── OS detection ─────────────────────────────────────────────
 def detect_os(ip: str) -> Tuple[str, int]:
+    """
+    BUG FIX: Added Cisco/Solaris TTL=255 range, and more specific Windows range.
+    """
     try:
-        flags = ["-n","1"] if platform.system()=="Windows" else ["-c","1"]
+        flags = ["-n","1"] if platform.system() == "Windows" else ["-c","1"]
         out = subprocess.check_output(
-            ["ping"]+flags+[ip],
+            ["ping"] + flags + [ip],
             timeout=4, stderr=subprocess.DEVNULL
         ).decode("utf-8", errors="replace")
         m = re.search(r"TTL[=\s]+(\d+)", out, re.IGNORECASE)
@@ -346,8 +399,10 @@ def detect_os(ip: str) -> Tuple[str, int]:
                 return f"Linux / Unix  (TTL={ttl})", ttl
             elif ttl <= 128:
                 return f"Windows       (TTL={ttl})", ttl
-            else:
+            elif ttl <= 255:
                 return f"Cisco / Solaris (TTL={ttl})", ttl
+            else:
+                return f"Unknown OS    (TTL={ttl})", ttl
     except Exception:
         pass
     return "Unknown", 0
@@ -375,20 +430,29 @@ def parse_targets(raw: str) -> List[str]:
 
 
 def parse_ports(raw: str) -> List[int]:
-    if raw in PORT_PROFILES:
-        return sorted(set(PORT_PROFILES[raw]))
+    """
+    BUG FIX: Empty string or invalid input now falls back to top-100
+    instead of returning [] which caused ZeroDivisionError in progress_cb.
+    """
+    if not raw or not raw.strip():
+        return sorted(set(PORT_PROFILES["top-100"]))
+    if raw.strip() in PORT_PROFILES:
+        return sorted(set(PORT_PROFILES[raw.strip()]))
     ports = []
     for part in raw.split(","):
         part = part.strip()
+        if not part:
+            continue
         if "-" in part:
-            a, b = part.split("-", 1)
-            if a.isdigit() and b.isdigit():
-                ports.extend(range(int(a), min(int(b)+1, 65536)))
+            halves = part.split("-", 1)
+            if len(halves) == 2 and halves[0].isdigit() and halves[1].isdigit():
+                ports.extend(range(int(halves[0]), min(int(halves[1])+1, 65536)))
         elif part.isdigit():
             n = int(part)
             if 0 < n < 65536:
                 ports.append(n)
-    return sorted(set(ports))
+    # BUG FIX: if nothing parsed, fallback to top-100 to avoid empty scan
+    return sorted(set(ports)) if ports else sorted(set(PORT_PROFILES["top-100"]))
 
 
 # ── Main Scanner class ────────────────────────────────────────
@@ -407,7 +471,8 @@ class NetScanner:
     ):
         self.scan_type   = scan_type
         self.timeout     = timeout
-        self.threads     = threads
+        # PERFORMANCE FIX: cap threads to prevent OS file-descriptor exhaustion
+        self.threads     = min(threads, _MAX_THREADS)
         self.do_banner   = do_banner
         self.skip_ping   = skip_ping
         self.os_detect   = os_detect
@@ -444,11 +509,11 @@ class NetScanner:
         if self.os_detect:
             r.os_hint, r.ttl = detect_os(r.ip)
 
-        # Scan function  (must be separate if/else — one-liner lambda causes parse bug)
+        # Scan function
         if self.scan_type == ScanType.UDP:
-            fn = lambda p: udp_scan_port(r.ip, p, self.timeout)
+            def fn(p): return udp_scan_port(r.ip, p, self.timeout)
         else:
-            fn = lambda p: tcp_connect(r.ip, p, self.timeout, self.do_banner)
+            def fn(p): return tcp_connect(r.ip, p, self.timeout, self.do_banner)
 
         total = len(ports)
         done  = 0
@@ -462,9 +527,15 @@ class NetScanner:
             with lock:
                 done += 1
                 if self.progress_cb:
-                    self.progress_cb(done, total)
+                    try:
+                        self.progress_cb(done, total)
+                    except Exception:
+                        pass
             if pr.state == PortState.OPEN and self.found_cb:
-                self.found_cb(pr)
+                try:
+                    self.found_cb(pr)
+                except Exception:
+                    pass
             return pr
 
         with ThreadPoolExecutor(max_workers=self.threads) as ex:
