@@ -368,6 +368,7 @@ class NetScannerGUI(tk.Tk):
 
         items = [
             ("Normal Text  (.txt)",   "txt",      ".txt"),
+            ("HTML Report  (.html)",  "html",     ".html"),
             ("JSON         (.json)",  "json",     ".json"),
             ("XML          (.xml)",   "xml",      ".xml"),
             ("Grepable     (.gnmap)", "grepable", ".gnmap"),
@@ -381,10 +382,10 @@ class NetScannerGUI(tk.Tk):
                        width=10).grid(row=i+1, column=1, padx=12)
 
         ttk.Separator(f, orient="horizontal").grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=14)
+            row=7, column=0, columnspan=2, sticky="ew", pady=14)
         ttk.Button(f, text="💾  Save All Formats",
                    command=self._save_all, width=30).grid(
-            row=7, column=0, columnspan=2, sticky="w")
+            row=8, column=0, columnspan=2, sticky="w")
 
     def _build_statusbar(self):
         bar = tk.Frame(self, bg=BG3, height=26)
@@ -707,10 +708,11 @@ class NetScannerGUI(tk.Tk):
             title="Choose base filename (no extension)",
             filetypes=[("All", "*.*")])
         if base:
-            for fmt, ext in [("txt","txt"),("json","json"),
-                              ("xml","xml"),("grepable","gnmap")]:
+            for fmt, ext in [("txt","txt"),("html","html"),
+                              ("json","json"),("xml","xml"),
+                              ("grepable","gnmap")]:
                 save(self._results, f"{base}.{ext}", fmt)
-            self._status_var.set(f"All formats saved → {base}.*")
+            self._status_var.set(f"All formats saved → {base}.txt/html/json/xml/gnmap")
 
 
 def launch_gui():

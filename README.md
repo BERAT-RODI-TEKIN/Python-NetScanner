@@ -1,4 +1,4 @@
-# ⬡ NetScanner — Full Release
+# ⬡ NetScanner v1.3
 
 ```
   ███╗   ██╗███████╗████████╗███████╗ ██████╗ █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗
@@ -8,20 +8,33 @@
   ██║ ╚████║███████╗   ██║   ███████║╚██████╗██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║
   ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
 
-  Professional Port Scanner  |  Full Release
+  Professional Port Scanner  |  v1.3
   github.com/BERAT-RODI-TEKIN/Python-NetScanner
 ```
 
-> **Professional cross-platform port scanner — CLI + Visual Interface**
-> TCP/UDP scanning, banner grabbing, OS detection, DNS resolution.
-> Zero external dependencies — pure Python stdlib.
+> **Professional cross-platform port scanner — CLI + Visual Interface**  
+> TCP/UDP scanning · Banner grabbing · OS detection · CVE hints · HTML reports · Parallel host scanning  
+> Zero external dependencies — pure Python stdlib.  
 > Works on **Kali Linux**, **Ubuntu/Debian**, **Windows**.
+
+---
+
+## 🆕 What's New in v1.3
+
+| Feature | Description |
+|---|---|
+| 🔴 **CVE Hint Database** | 24+ ports mapped to known CVEs — BlueKeep, EternalBlue, Heartbleed, Log4Shell and more |
+| 🌐 **HTML Report** | Beautiful standalone dark-theme report (`-oH report.html`) with CVE highlighting |
+| ⚡ **Parallel Host Scanning** | Scan multiple hosts simultaneously (`--parallel-hosts N`) |
+| 🔍 **Service Fingerprinting** | Regex-based accurate version extraction (OpenSSH, nginx, Apache, Dovecot…) |
+| 🐢 **Rate Limiting** | `--rate-limit 0.05` — IDS-friendly slow scan mode |
+| 🔐 **SSL/TLS cert info** | Real TLS handshake: protocol version, cipher, CN, expiry date |
 
 ---
 
 ## 🚀 Installation
 
-### 🐧 Linux / Kali — One command install
+### 🐧 Linux / Kali — One command
 
 ```bash
 git clone https://github.com/BERAT-RODI-TEKIN/Python-NetScanner.git
@@ -29,231 +42,213 @@ cd Python-NetScanner
 sudo bash install.sh
 ```
 
-Then just type `netscanner` anywhere:
-```bash
-netscanner                    # interactive menu + GUI
-netscanner 192.168.1.1        # direct CLI scan
-netscanner --gui              # open visual interface
+### 🪟 Windows
+
+```bat
+git clone https://github.com/BERAT-RODI-TEKIN/Python-NetScanner.git
+cd Python-NetScanner
+install.bat
 ```
 
-### 🪟 Windows — Installer
-
-```
-1. git clone https://github.com/BERAT-RODI-TEKIN/Python-NetScanner.git
-2. Right-click install.bat → "Run as Administrator"
-3. Open a new CMD / PowerShell
-4. Type: netscanner
-```
-
-### 📦 pip install (any platform)
+### Manual
 
 ```bash
 git clone https://github.com/BERAT-RODI-TEKIN/Python-NetScanner.git
-cd Python-NetScanner
-pip install -e .
-netscanner 192.168.1.1
+cd Python-NetScanner/NS4
+python main.py
 ```
+
+**Requirements:** Python 3.8+ — no pip installs needed.
 
 ---
 
-## 💻 Running Without Install
+## 📖 Usage
+
+### Interactive menu
 
 ```bash
-cd Python-NetScanner
-
-# Interactive menu (launches GUI or CLI)
 python main.py
-python3 main.py
+```
 
-# Direct CLI scan
+### CLI — Quick examples
+
+```bash
+# Basic scan
 python main.py 192.168.1.1
-python main.py 192.168.1.1 -p top-100 -A
 
-# Open GUI
+# Scan with banner detection + OS fingerprint
+python main.py 192.168.1.1 -p top-100 -b -O
+
+# Aggressive scan — all detection + CVE hints
+python main.py 192.168.1.1 -p top-1000 -A
+
+# Full port scan, save HTML report
+python main.py 192.168.1.1 -p 1-65535 -T4 -oH report.html
+
+# Subnet scan — parallel hosts (v1.3)
+python main.py 192.168.1.0/24 -p top-100 -T4 --parallel-hosts 10
+
+# Save all formats at once
+python main.py target.com -p top-100 -A -oA results
+# → results.txt, results.json, results.xml, results.gnmap, results.html
+
+# UDP scan
+python main.py 192.168.1.1 -sU -p 53,161,123
+
+# Rate-limited scan (IDS-friendly)
+python main.py target.com -p top-100 --rate-limit 0.1
+
+# Disable CVE hints
+python main.py 192.168.1.1 -p top-100 --no-cve
+
+# DNS lookup only
+python main.py google.com --resolve
+
+# Launch GUI
 python main.py --gui
 ```
 
 ---
 
-## 📟 CLI Reference
+## 🎯 Port Profiles
 
-```
-positional arguments:
-  target                IP, hostname, domain, CIDR, range, comma-separated
-
-Scan Type:
-  -sT                   TCP Connect scan (default)
-  -sU                   UDP scan
-
-Port Selection:
-  -p PORTS              22,80 | 1-1024 | top-100 | web | db | all ...
-  --top-ports N         Scan first N ports
-
-Host Discovery:
-  -Pn                   Skip host discovery (treat all as up)
-
-Timing & Performance:
-  -T 1-5                1=Sneaky  2=Polite  3=Normal  4=Aggressive  5=Insane
-  --timeout SEC         Override socket timeout
-  --threads N           Override thread count
-
-Detection:
-  -b, --banner          Enable banner / version detection
-  -O, --os              OS detection (TTL-based)
-  -A, --aggressive      Aggressive: enable -b + -O
-
-DNS / Resolution:
-  --resolve             DNS lookup only — domain → IP, no scan
-
-Output:
-  -v, --verbose         Show banner on separate line
-  --no-color            Disable ANSI colors
-  --closed              Also show closed ports (hidden by default)
-  -oN FILE              Save normal text
-  -oJ FILE              Save JSON
-  -oX FILE              Save XML
-  -oG FILE              Save grepable format
-  -oA NAME              Save all formats (NAME.txt/.json/.xml/.gnmap)
-
-Misc:
-  --gui                 Launch Visual Interface
-  --list-profiles       List available port profiles
-  --version             Show version
-```
+| Profile | Ports | Use case |
+|---|---|---|
+| `top-100` | 100 common ports | Fast everyday scan |
+| `top-1000` | 1–1000 | Thorough scan |
+| `web` | 80,443,8080,8443… | Web server audit |
+| `db` | 3306,5432,27017… | Database exposure check |
+| `mail` | 25,110,143,465… | Mail server scan |
+| `remote` | 22,23,3389,5900… | Remote access audit |
+| `vuln` | Common exploit ports | Quick vuln sweep |
+| `all` | 1–65535 | Full scan |
 
 ---
 
-## 🖥️ Usage Examples
+## ⏱ Timing Templates
 
-```bash
-# Basic scan
-netscanner 192.168.1.1
-
-# Specific ports
-netscanner 192.168.1.1 -p 22,80,443,8080
-
-# Port range
-netscanner 192.168.1.1 -p 1-1024
-
-# Named profile
-netscanner 192.168.1.1 -p top-1000
-
-# Full port scan (fast)
-netscanner 192.168.1.1 -p 1-65535 -T4
-
-# Subnet scan
-netscanner 192.168.1.0/24 -p top-100 -T4
-
-# IP range
-netscanner 192.168.1.1-20 -p web
-
-# Aggressive: banner + OS detection
-netscanner 192.168.1.1 -A -p top-1000
-
-# Domain → IP (DNS lookup only)
-netscanner google.com --resolve
-
-# Scan a domain (auto-resolves IP)
-netscanner google.com -p 80,443
-
-# UDP scan
-netscanner 192.168.1.1 -sU -p 53,161,500
-
-# Save results
-netscanner 192.168.1.1 -p top-100 -oJ results.json
-netscanner 192.168.1.1 -p top-100 -oA scan_output
-
-# Show closed ports too
-netscanner 192.168.1.1 -p top-100 --closed
-
-# Open Visual Interface
-netscanner --gui
-```
+| Level | Timeout | Threads | Description |
+|---|---|---|---|
+| `-T1` | 3.0s | 50 | Sneaky — very slow, IDS-friendly |
+| `-T2` | 2.0s | 100 | Polite — moderate |
+| `-T3` | 1.0s | 300 | Normal *(default)* |
+| `-T4` | 0.5s | 500 | Aggressive — fast |
+| `-T5` | 0.2s | 800 | Insane — maximum speed |
 
 ---
 
-## 🗂️ Port Profiles
+## 📤 Output Formats
 
-| Profile    | Ports | Description               |
-|------------|-------|---------------------------|
-| `top-100`  | 100   | 100 most common ports     |
-| `top-1000` | 1000  | Ports 1–1000              |
-| `web`      | 12    | HTTP/HTTPS ports          |
-| `db`       | 11    | Database ports            |
-| `mail`     | 7     | Mail server ports         |
-| `remote`   | 9     | RDP, SSH, VNC, WinRM      |
-| `vuln`     | 15    | Common vulnerability ports|
-| `all`      | 65535 | All ports                 |
+| Flag | Format | Description |
+|---|---|---|
+| `-oH file.html` | HTML | **NEW v1.3** — Beautiful dark-theme visual report |
+| `-oJ file.json` | JSON | Machine-readable, all fields |
+| `-oX file.xml` | XML | Structured, importable |
+| `-oN file.txt` | Text | Plain terminal output |
+| `-oG file.gnmap` | Grepable | Grep-friendly one-liner |
+| `-oA basename` | All | Saves all 5 formats at once |
 
 ---
 
-## 📁 Project Structure
+## 🔴 CVE Hint Database (v1.3)
+
+NetScanner automatically checks open ports against a built-in CVE database:
+
+| Port | Notable CVEs |
+|---|---|
+| 22 (SSH) | CVE-2023-38408 (OpenSSH agent RCE), CVE-2018-15473 (user enum) |
+| 80/443 (HTTP/S) | CVE-2021-41773 (Apache path traversal), Heartbleed |
+| 139/445 (SMB) | EternalBlue (WannaCry), SMBGhost, PetitPotam |
+| 3389 (RDP) | BlueKeep, DejaBlue — pre-auth RCE, no credentials needed |
+| 6379 (Redis) | CVE-2022-0543 Lua sandbox escape, unauthenticated access |
+| 2375 (Docker) | Container escape, daemon without TLS |
+| 9200 (Elasticsearch) | Unauthenticated data access, script eval RCE |
+| 27017 (MongoDB) | Unauthenticated database access |
+
+> ⚠ CVE hints are informational. Always verify with a proper vulnerability scanner.
+
+---
+
+## 📂 Project Structure
 
 ```
-Python-NetScanner/
-├── main.py                    ← Entry point (menu / CLI / GUI)
-├── install.sh                 ← Linux/Kali installer
-├── install.bat                ← Windows installer
-├── setup.py                   ← pip install support
-├── README.md
-├── LICENSE
+NS4/
+├── main.py                      # Entry point — menu, CLI, GUI router
 ├── netscanner/
 │   ├── core/
-│   │   ├── scanner.py         ← Scan engine + DNS resolver
-│   │   └── output.py          ← Terminal output + JSON/XML/Grepable
+│   │   ├── scanner.py           # Scan engine, CVE DB, fingerprinting
+│   │   ├── output.py            # Terminal, JSON, XML, grepable output
+│   │   └── report.py            # HTML report generator (v1.3)
 │   ├── cli/
-│   │   └── cli.py             ← CLI interface (nmap-style)
+│   │   └── cli.py               # CLI argument parser, progress bar
 │   └── gui/
-│       └── app.py             ← Visual Interface (dark theme)
-└── output/                    ← Scan results saved here
+│       └── app.py               # Tkinter dark-theme GUI
+├── tests/
+│   └── test_netscanner.py       # 80 unit tests (v1.3)
+├── install.sh                   # Linux installer
+├── install.bat                  # Windows installer
+└── README.md
 ```
 
 ---
 
-## ❓ FAQ
+## 🧪 Running Tests
 
-**Why does my IP only show 5 open ports?**
-That is the correct result. For example, 192.168.1.1 (your router) only
-exposes those ports. Open ports ≠ all ports — most are closed or filtered.
-Use `--closed` to see all scanned ports.
-
-**"Closed — hidden" means what?**
-By default, only OPEN ports are displayed. Closed/filtered ports are hidden
-to keep output clean. Add `--closed` to show every port.
-
-**Can I scan a website domain?**
-Yes! NetScanner auto-resolves domain names:
 ```bash
-netscanner github.com -p 80,443
-netscanner github.com --resolve    # DNS lookup only
+cd NS4
+PYTHONPATH=. python tests/test_netscanner.py
 ```
 
----
-
-## ⚠️ Legal Disclaimer
-
-This tool is intended for **authorized security testing and research only**.
-Scanning systems without explicit permission may violate laws.
-The authors accept no liability for misuse.
+Expected: **80 tests, 0 failures** (1 skipped in restricted environments).
 
 ---
 
-## 📜 License
+## 📋 Full Changelog
 
-MIT License — Copyright © 2026 Berat Rodi Tekin
+### v1.3 (current)
+- **NEW** CVE hint database (24 ports, 40+ CVE entries)
+- **NEW** HTML report generator (`-oH`, included in `-oA`)
+- **NEW** Parallel multi-host scanning (`scan_many()`, `--parallel-hosts`)
+- **NEW** Service fingerprinting with regex patterns
+- **NEW** Rate limiting (`--rate-limit SEC`)
+- **NEW** `--no-cve` flag to disable CVE hints
+- **NEW** SSL/TLS: real cert CN + expiry in banner
+- **NEW** `critical_cves` property on `ScanResult`
+- **IMPROVED** `-oA` now includes HTML output
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### v1.2
+- **FIX** `is_host_up()` correctly returns `False` for unreachable hosts
+- **FIX** UDP uses protocol-specific payloads (DNS, NTP, SNMP, IKE…)
+- **FIX** SSL/TLS ports do real TLS handshake (cert info, cipher, protocol)
+- **FIX** `detect_os()` uses `subprocess.run()` — no `CalledProcessError` leak
+- **FIX** Large CIDR guard: `/8` requires `--force-large-scan`
+- **PERF** DNS resolution cache (avoids repeat lookups on subnet scans)
+- **PERF** Adaptive thread cap: `min(threads, len(ports))`
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+### v1.1
+- Thread cap (`_MAX_THREADS = 1000`)
+- Terminal injection protection (ANSI sanitization)
+- DNS reverse timeout with daemon thread
+- IPv6 bracket stripping
+- Cross-platform ECONNREFUSED codes (Windows/macOS/BSD/Linux)
+- ZeroDivisionError fix in `parse_ports()`
+- Cisco/Solaris TTL≤255 OS detection
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE.
+### v1.0
+- Initial release: TCP/UDP scanning, banner grabbing, OS detection
+- CLI (argparse, nmap-style) + GUI (Tkinter dark theme)
+- 8 port profiles, 5 timing templates
+- JSON/XML/grepable/text output formats
+
+---
+
+## ⚖️ Legal
+
+**For authorized security testing only.**  
+Only scan systems you own or have explicit written permission to test.  
+Unauthorized port scanning may be illegal in your jurisdiction.
+
+---
+
+*Made by [BERAT-RODI-TEKIN](https://github.com/BERAT-RODI-TEKIN)*  
+*NetScanner v1.3 — 2026*

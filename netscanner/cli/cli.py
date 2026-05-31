@@ -13,7 +13,7 @@ import threading
 from netscanner.core.scanner import (
     NetScanner, ScanType, PortState,
     parse_targets, parse_ports, PORT_PROFILES,
-    VERSION, BUILD, GITHUB, resolve_domain_info,
+    VERSION, BUILD, GITHUB, resolve_domain_info, _LARGE_CIDR_THRESHOLD,
     DANGEROUS_PORTS,
 )
 from netscanner.core.output import (
@@ -160,6 +160,15 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Launch GUI mode")
     misc.add_argument("--list-profiles", action="store_true",
                       help="List available port profiles")
+    og.add_argument("-oH", metavar="FILE", help="Save HTML report")
+    misc.add_argument("--no-cve",         action="store_true",
+                      help="Disable CVE hint lookup for open ports")
+    misc.add_argument("--rate-limit",     type=float, default=0.0, metavar="SEC",
+                      help="Delay (seconds) between port probes (e.g. 0.05)")
+    misc.add_argument("--parallel-hosts", type=int, default=1, metavar="N",
+                      help="Scan N hosts in parallel (v1.3, default=1)")
+    misc.add_argument("--force-large-scan", action="store_true",
+                      help="Allow scanning CIDR blocks with >65536 hosts (use with caution)")
     misc.add_argument("--version",       action="version",
                       version=f"NetScanner {VERSION} (build {BUILD})")
     return p
@@ -225,7 +234,12 @@ def run_cli(argv=None):
     else:
         ports = parse_ports(args.ports)
 
-    targets = parse_targets(args.target)
+    try:
+        targets = parse_targets(args.target, confirm_large=getattr(args, "force_large_scan", False))
+    except ValueError as e:
+        print(f"\n  {C.RED}[!] {e}{C.R}")
+        print(f"  {C.YLW}Add --force-large-scan to override.{C.R}\n")
+        sys.exit(1)
     if not targets:
         print(f"{C.RED}[!] No valid targets found.{C.R}")
         sys.exit(1)
@@ -263,21 +277,31 @@ def run_cli(argv=None):
         timeout     = timeout,
         threads     = threads,
         do_banner   = do_banner,
+        do_cve      = not getattr(args, "no_cve", False),
         skip_ping   = args.Pn,
         os_detect   = do_os,
         show_closed = args.closed,
+        rate_limit  = getattr(args, "rate_limit", 0.0),
         progress_cb = progress.update,
         found_cb    = _found_cb,
     )
 
     all_results = []
-    for target in targets:
-        print(f"  {C.CYN}[*] Scanning: {C.BOLD}{target}{C.R}  "
-              f"{C.GRY}({len(ports)} ports){C.R}")
-        result = scanner.scan(target, ports)
-        progress.clear()
-        print(format_result(result, verbose=verbose))
-        all_results.append(result)
+    parallel = getattr(args, "parallel_hosts", 1)
+    if parallel > 1 and len(targets) > 1:
+        print(f"  {C.CYN}[*] Parallel mode: {parallel} hosts simultaneously{C.R}\n")
+        for result in scanner.scan_many(targets, ports, max_parallel_hosts=parallel):
+            progress.clear()
+            print(format_result(result, verbose=verbose))
+            all_results.append(result)
+    else:
+        for target in targets:
+            print(f"  {C.CYN}[*] Scanning: {C.BOLD}{target}{C.R}  "
+                  f"{C.GRY}({len(ports)} ports){C.R}")
+            result = scanner.scan(target, ports)
+            progress.clear()
+            print(format_result(result, verbose=verbose))
+            all_results.append(result)
 
     if len(all_results) > 1:
         print(format_summary(all_results))
@@ -289,7 +313,8 @@ def run_cli(argv=None):
         except Exception as e:
             print(f"  {C.RED}[!] Save error {path}: {e}{C.R}")
 
-    if args.oN: _save("txt",      args.oN)
+    if getattr(args, "oH", None): _save("html", args.oH)
+    if args.oN:            _save("txt",      args.oN)
     if args.oJ: _save("json",     args.oJ)
     if args.oX: _save("xml",      args.oX)
     if args.oG: _save("grepable", args.oG)
@@ -298,5 +323,6 @@ def run_cli(argv=None):
         _save("json",     args.oA + ".json")
         _save("xml",      args.oA + ".xml")
         _save("grepable", args.oA + ".gnmap")
+        _save("html",     args.oA + ".html")
 
     print()

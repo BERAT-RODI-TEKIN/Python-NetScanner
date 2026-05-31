@@ -165,11 +165,45 @@ def _cli_interactive():
         do_os     = os_raw not in ("n", "no")
         do_closed = cl_raw in ("y", "yes")
 
+        # Kaydetme seçenekleri
+        import os
+        cwd = os.getcwd()
+        print(f"\n  {BLD}Output / Save:{RST}")
+        print(f"  {GRN}[1]{RST} Sadece ekran          {DIM}(kaydetme){RST}")
+        print(f"  {GRN}[2]{RST} TXT dosyası            {DIM}(sonuclar.txt){RST}")
+        print(f"  {GRN}[3]{RST} HTML raporu            {DIM}(sonuclar.html — tarayıcıda aç){RST}")
+        print(f"  {GRN}[4]{RST} Hepsi                  {DIM}(txt + html + json + xml){RST}")
+        print(f"\n  {DIM}Kayıt konumu: {cwd}{RST}")
+
+        sc = input(f"\n  {CYN}Kaydetme [1-4, Enter=1]:{RST} ").strip()
+        save_name = ""
+        save_path = ""
+        if sc in ("2","3","4"):
+            default_name = f"scan_{target.replace('.','_')}"
+            raw = input(f"  {CYN}Dosya adı [Enter={default_name}]:{RST} ").strip()
+            save_name = raw if raw else default_name
+            # Tam yolu göster
+            if sc == "2":
+                save_path = os.path.join(cwd, save_name + ".txt")
+                print(f"  {YLW}→ Kaydedilecek: {save_path}{RST}")
+            elif sc == "3":
+                save_path = os.path.join(cwd, save_name + ".html")
+                print(f"  {YLW}→ Kaydedilecek: {save_path}{RST}")
+            elif sc == "4":
+                print(f"  {YLW}→ Kaydedilecek: {cwd}{os.sep}{save_name}.txt / .html / .json / .xml{RST}")
+
         argv = [target, "-p", ports, f"-T{timing}"]
         if do_banner:   argv.append("-b")
         if do_os:       argv.append("-O")
         if do_closed:   argv.append("--closed")
-        argv.append("-v")   # verbose in interactive mode
+        argv.append("-v")
+
+        if sc == "2" and save_name:
+            argv += ["-oN", os.path.join(cwd, save_name + ".txt")]
+        elif sc == "3" and save_name:
+            argv += ["-oH", os.path.join(cwd, save_name + ".html")]
+        elif sc == "4" and save_name:
+            argv += ["-oA", os.path.join(cwd, save_name)]
 
         print(f"\n  {GRN}[*] Running: netscanner {' '.join(argv)}{RST}")
         print(f"  {CYN}{'─'*58}{RST}\n")
@@ -193,8 +227,28 @@ def _quick_scan():
         if not target:
             return
         print()
+        import os
+        cwd = os.getcwd()
+        print(f"\n  {BLD}Kaydet?{RST}")
+        print(f"  {DIM}Kayıt konumu: {cwd}{RST}")
+        sq = input(f"  {CYN}[1] Sadece ekran  [2] TXT  [3] HTML  [4] Hepsi  [Enter=1]:{RST} ").strip()
+        qargs = [target, "-p", "top-100", "-T4", "-b", "-O", "-v"]
+        if sq in ("2","3","4"):
+            default_name = f"scan_{target.replace('.','_')}"
+            qname = input(f"  {CYN}Dosya adı [Enter={default_name}]:{RST} ").strip() or default_name
+            if sq == "2":
+                qpath = os.path.join(cwd, qname + ".txt")
+                print(f"  {YLW}→ Kaydedilecek: {qpath}{RST}")
+                qargs += ["-oN", qpath]
+            elif sq == "3":
+                qpath = os.path.join(cwd, qname + ".html")
+                print(f"  {YLW}→ Kaydedilecek: {qpath}{RST}")
+                qargs += ["-oH", qpath]
+            elif sq == "4":
+                print(f"  {YLW}→ Kaydedilecek: {cwd}{os.sep}{qname}.txt / .html / .json / .xml{RST}")
+                qargs += ["-oA", os.path.join(cwd, qname)]
         from netscanner.cli.cli import run_cli
-        run_cli([target, "-p", "top-100", "-T4", "-b", "-O", "-v"])
+        run_cli(qargs)
     except KeyboardInterrupt:
         print(f"\n\n  {YLW}Cancelled.{RST}\n")
     input(f"\n  Press Enter to return to menu...")
