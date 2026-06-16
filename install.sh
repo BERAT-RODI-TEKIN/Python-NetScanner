@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NetScanner v1.3 — Linux/Kali Installer
+# NetScanner v1.4 — Linux/Kali Installer
 set -e
 
 # Root kontrolü
@@ -7,7 +7,7 @@ set -e
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║   NetScanner v1.3 — Installer        ║"
+echo "  ║   NetScanner v1.4 — Installer        ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 

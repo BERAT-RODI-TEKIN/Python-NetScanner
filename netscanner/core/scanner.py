@@ -30,8 +30,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Callable, Tuple, Iterator
 from enum import Enum
 
-VERSION = "v1.3"
-BUILD   = "1.3.0"
+VERSION = "v1.4"
+BUILD   = "1.4.0"
 GITHUB  = "https://github.com/BERAT-RODI-TEKIN/Python-NetScanner"
 YEAR    = "2026"
 

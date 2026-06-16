@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
-:: NetScanner v1.3 — Windows Installer
+:: NetScanner v1.4 — Windows Installer
 :: Yönetici olarak çalıştır (sağ tıkla → Yönetici olarak çalıştır)
 
 echo.
 echo   ╔══════════════════════════════════════╗
-echo   ║   NetScanner v1.3 — Windows Setup   ║
+echo   ║   NetScanner v1.4 — Windows Setup   ║
 echo   ╚══════════════════════════════════════╝
 echo.
 

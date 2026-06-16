@@ -309,7 +309,7 @@ def run_cli(argv=None):
     def _save(fmt, path):
         try:
             save(all_results, path, fmt)
-            print(f"  {C.GRN}[✓] {fmt.upper()} saved → {path}{C.R}")
+            print(f"  {C.GRN}[✓] {fmt.upper()} saved → {os.path.abspath(path)}{C.R}")
         except Exception as e:
             print(f"  {C.RED}[!] Save error {path}: {e}{C.R}")
 

@@ -12,6 +12,19 @@ from netscanner.core.scanner import (
 )
 from netscanner.core.report import to_html
 
+def _supports_unicode() -> bool:
+    """Check if terminal supports UTF-8 box-drawing chars."""
+    try:
+        enc = getattr(sys.stdout, "encoding", "") or ""
+        return enc.lower().replace("-","") in ("utf8","utf16","utf32")
+    except Exception:
+        return False
+
+_UNICODE = _supports_unicode()
+_H2 = "═" if _UNICODE else "="
+_H1 = "─" if _UNICODE else "-"
+
+
 
 def _ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -74,9 +87,10 @@ _SEV_COLOR = {
 
 def format_result(result: ScanResult, verbose: bool = False) -> str:
     L = []
-    L.append(f"\n{C.CYN}{'═'*72}{C.R}")
+    _h2 = '═' if _supports_unicode() else '='
+    L.append(f"\n{C.CYN}{_h2*72}{C.R}")
     L.append(f"  {C.BOLD}{C.WHT}Scan Report — {result.target}{C.R}")
-    L.append(f"{C.CYN}{'─'*72}{C.R}")
+    L.append(f"{C.CYN}{_H1*72}{C.R}")
 
     rows = [("Target", result.target)]
     if result.ip and result.ip != result.target:
@@ -99,7 +113,7 @@ def format_result(result: ScanResult, verbose: bool = False) -> str:
 
     if result.error:
         L.append(f"\n  {C.RED}[ERROR] {result.error}{C.R}")
-        L.append(f"{C.CYN}{'═'*72}{C.R}")
+        L.append(f"{C.CYN}{_H2*72}{C.R}")
         return "\n".join(L)
 
     # ── Port tablosu ──────────────────────────────────────────
@@ -107,7 +121,7 @@ def format_result(result: ScanResult, verbose: bool = False) -> str:
              f"{'PORT':<10}{'PROTO':<7}{'STATE':<14}"
              f"{'SERVICE':<20}{'VERSION / BANNER'}"
              f"{C.R}")
-    L.append(f"  {'─'*70}")
+    L.append(f"  {_H1*70}")
 
     if not result.ports:
         L.append(f"\n  {C.YLW}No open ports found.{C.R}")
@@ -180,7 +194,7 @@ def format_result(result: ScanResult, verbose: bool = False) -> str:
     cc  = len(result.closed_ports)
     hidden = result.total_scanned - len(result.ports)
 
-    L.append(f"\n{C.CYN}{'─'*72}{C.R}")
+    L.append(f"\n{C.CYN}{_H1*72}{C.R}")
     if hidden > 0:
         L.append(
             f"  {C.GRY}Note: {hidden} closed/filtered ports hidden "
@@ -201,22 +215,23 @@ def format_result(result: ScanResult, verbose: bool = False) -> str:
             f"CVE hints{C.R}"
         )
     L.append(f"  {C.GRY}Duration: {C.BOLD}{C.WHT}{result.duration}s{C.R}")
-    L.append(f"{C.CYN}{'═'*72}{C.R}")
+    L.append(f"{C.CYN}{_H2*72}{C.R}")
     return "\n".join(L)
 
 
 def format_summary(results: List[ScanResult]) -> str:
     L = []
-    L.append(f"\n{C.CYN}{'═'*72}{C.R}")
+    _h2 = '═' if _supports_unicode() else '='
+    L.append(f"\n{C.CYN}{_h2*72}{C.R}")
     L.append(f"  {C.BOLD}{C.WHT}SCAN SUMMARY — {len(results)} host(s){C.R}")
-    L.append(f"  {'─'*70}")
+    L.append(f"  {_H1*70}")
     L.append(
         f"  {C.BOLD}"
         f"{'HOST':<22}{'IP':<18}{'STATUS':<10}"
         f"{'OPEN':<8}{'CVEs':<8}{'DURATION'}"
         f"{C.R}"
     )
-    L.append(f"  {'─'*70}")
+    L.append(f"  {_H1*70}")
     total_open = 0
     total_cves = 0
     for r in results:
@@ -234,12 +249,12 @@ def format_summary(results: List[ScanResult]) -> str:
             f"{cvc}{cvec:<8}{C.R}"
             f"{C.GRY}{r.duration}s{C.R}"
         )
-    L.append(f"  {'─'*70}")
+    L.append(f"  {_H1*70}")
     L.append(
         f"  {C.BOLD}Total: {total_open} open port(s), "
         f"{total_cves} CVE hint(s) across {len(results)} host(s){C.R}"
     )
-    L.append(f"{C.CYN}{'═'*72}{C.R}\n")
+    L.append(f"{C.CYN}{_H2*72}{C.R}\n")
     return "\n".join(L)
 
 
